@@ -1,0 +1,32 @@
+node_modules/
+dist/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+apps/web/dev-dist/
+data/
+secrets/
+*.p12
+*.pfx
+*.key
+dump.rdb
+
+# Build caches
+*.tsbuildinfo
+.vite/
+
+# Local tool and editor settings
+.claude/
+.vscode/
+.idea/
+*.swp
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local test runs
+setup-log.txt

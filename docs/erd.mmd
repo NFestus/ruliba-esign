@@ -1,0 +1,128 @@
+erDiagram
+  departments ||--o{ users : "has"
+  users ||--|{ user_roles : "holds"
+  users ||--o| mfa_factors : "enrols"
+  users ||--o{ mfa_recovery_codes : "keeps"
+  users ||--o{ refresh_tokens : "signs in with"
+  users ||--o{ saved_signatures : "saves"
+
+  document_types ||--o{ approval_policies : "approved by"
+  departments ||--o{ approval_policies : "scoped to"
+  approval_policies ||--|{ approval_policy_steps : "has steps"
+  users ||--o{ approval_policy_steps : "holds post"
+
+  departments ||--o{ documents : "owns"
+  document_types ||--o{ documents : "classifies"
+  users ||--o{ documents : "sends"
+  templates ||--o{ documents : "starts"
+  documents ||--|{ document_files : "versions"
+  documents ||--|{ recipients : "routed to"
+  recipients ||--o{ fields : "fills"
+  documents ||--o{ fields : "contains"
+  fields ||--o| field_values : "answered by"
+  recipients ||--o{ otp_challenges : "verifies with"
+  users ||--o{ recipients : "is (internal)"
+
+  templates ||--|{ template_roles : "defines"
+  template_roles ||--o{ template_fields : "fills"
+  document_types ||--o{ templates : "classifies"
+
+  documents ||--o{ notifications : "triggers"
+  users ||--o{ notifications : "receives"
+  users ||--o{ signing_certificates : "issued"
+
+  departments {
+    uuid id PK
+    varchar code UK "PRO, FIN..."
+    varchar name
+    bool active
+  }
+  users {
+    uuid id PK
+    varchar email UK "lower-case"
+    varchar full_name
+    text password_hash "Argon2id"
+    enum status "ACTIVE, DISABLED"
+    uuid department_id FK
+    bool must_change_password
+    int failed_logins
+    timestamptz locked_until
+  }
+  user_roles {
+    uuid user_id PK
+    enum role PK "ADMIN SENDER APPROVER SIGNER AUDITOR"
+  }
+  mfa_factors {
+    uuid user_id UK
+    text secret_enc "AES-256-GCM"
+    timestamptz confirmed_at
+    bigint last_used_step "replay guard"
+  }
+  refresh_tokens {
+    uuid family_id "one sign-in"
+    char token_hash UK "SHA-256"
+    timestamptz expires_at
+    timestamptz revoked_at
+  }
+  document_types {
+    varchar code UK "CON, PO..."
+    bool requires_approval
+    bool esign_allowed
+    enum min_signature_level
+    int retention_years
+  }
+  approval_policy_steps {
+    int step_order
+    varchar label "Finance Director"
+    uuid approver_user_id FK
+    numeric min_amount "only above"
+  }
+  reference_sequences {
+    varchar department_code PK
+    varchar type_code PK
+    int year PK
+    int last_number
+  }
+  documents {
+    uuid id PK
+    varchar title
+    enum status "DRAFT ... COMPLETED"
+    varchar reference_no UK "RCL/PRO/CON/2026/0001"
+    varchar counterparty
+    numeric contract_value
+    enum routing_mode
+    timestamptz expires_at
+  }
+  document_files {
+    enum kind "ORIGINAL ... SEALED"
+    text storage_key UK
+    char sha256
+    text wrapped_key
+  }
+  recipients {
+    enum role "APPROVER SIGNER CC"
+    int step_order "same = parallel"
+    varchar email
+    enum status
+    char access_token_hash UK
+    timestamptz consent_at
+  }
+  fields {
+    enum type "SIGNATURE ... DROPDOWN"
+    int page
+    float x "fraction of page"
+    float y
+    bool required
+  }
+  audit_events {
+    bigserial id PK
+    timestamptz occurred_at
+    varchar type
+    uuid document_id
+    varchar actor_email
+    varchar ip
+    char doc_sha256
+    jsonb details
+    char prev_hash "chain"
+    char hash UK
+  }

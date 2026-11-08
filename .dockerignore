@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+**/dev-dist
+**/.env
+**/.env.*
+!**/.env.example
+.git
+docs
+data
+secrets

@@ -1,0 +1,1 @@
+ALTER TYPE "public"."file_kind" ADD VALUE 'SIGNED' BEFORE 'SEALED';

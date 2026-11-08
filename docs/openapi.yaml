@@ -1,0 +1,1570 @@
+openapi: 3.1.0
+info:
+  title: Ruliba Clays eSign API
+  version: 1.0.0 (Phases 0-3)
+  description: 'REST API behind the eSign web app. Every path is under `/api`.
+
+    Staff authenticate with a 15-minute Bearer access token. The refresh token is an HttpOnly cookie
+
+    (`esign_rt`, path `/api/auth`) and the endpoints that use it require the header `x-esign-csrf: 1`.
+
+    Errors are JSON: `{ statusCode, message, errors?: [{ field, message }], code? }`.
+
+    Phase 1 (this version) adds documents, recipients, fields, sending, signing links, one-time codes and the signed copy. Phase 2 adds templates,
+
+    approvals and notifications; Phase 3 sealing, verification, archive and reports.
+
+    The ERP and Microsoft 365 will use this same API with service accounts and webhooks.
+
+    '
+servers:
+- url: https://esign.ruliba.com/api
+security:
+- bearer: []
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    signSession:
+      type: http
+      scheme: bearer
+      description: 60-minute signing session from /sign/{token}/verify or /documents/{id}/sign-session
+  schemas:
+    Role:
+      type: string
+      enum:
+      - ADMIN
+      - SENDER
+      - APPROVER
+      - SIGNER
+      - AUDITOR
+    PublicUser:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        fullName:
+          type: string
+        jobTitle:
+          type:
+          - string
+          - 'null'
+        departmentId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
+        mfaEnabled:
+          type: boolean
+        mustChangePassword:
+          type: boolean
+    Session:
+      type: object
+      description: Also sets the esign_rt refresh cookie.
+      properties:
+        accessToken:
+          type: string
+        expiresIn:
+          type: integer
+          example: 900
+        user:
+          $ref: '#/components/schemas/PublicUser'
+    Department:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          pattern: ^[A-Z]{2,5}$
+          example: PRO
+        name:
+          type: string
+          example: Procurement
+        active:
+          type: boolean
+    DocumentType:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          pattern: ^[A-Z]{2,5}$
+          example: CON
+        name:
+          type: string
+        requiresApproval:
+          type: boolean
+        eSignAllowed:
+          type: boolean
+          description: false = may not be signed electronically
+        minSignatureLevel:
+          type: string
+          enum:
+          - PLATFORM
+          - GOVCA
+        retentionYears:
+          type:
+          - integer
+          - 'null'
+        active:
+          type: boolean
+    ApprovalPolicyInput:
+      type: object
+      required:
+      - name
+      - documentTypeId
+      - departmentId
+      - steps
+      properties:
+        name:
+          type: string
+        documentTypeId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        departmentId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        active:
+          type: boolean
+        steps:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            properties:
+              label:
+                type: string
+                example: Finance Director
+              approverUserId:
+                type:
+                - string
+                - 'null'
+                format: uuid
+              minAmount:
+                type:
+                - number
+                - 'null'
+                description: Step applies only when the document value is above this
+    AuditEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+        occurredAt:
+          type: string
+          format: date-time
+        type:
+          type: string
+          example: auth.login
+        documentId:
+          type:
+          - string
+          - 'null'
+        actorUserId:
+          type:
+          - string
+          - 'null'
+        actorEmail:
+          type:
+          - string
+          - 'null'
+        actorName:
+          type:
+          - string
+          - 'null'
+        ip:
+          type:
+          - string
+          - 'null'
+        userAgent:
+          type:
+          - string
+          - 'null'
+        docSha256:
+          type:
+          - string
+          - 'null'
+        details:
+          type: object
+        prevHash:
+          type: string
+        hash:
+          type: string
+    Error:
+      type: object
+      properties:
+        statusCode:
+          type: integer
+        message:
+          type: string
+        code:
+          type: string
+          example: PASSWORD_CHANGE_REQUIRED
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+paths:
+  /health:
+    get:
+      summary: Up/down check for Docker and monitoring
+      security: []
+      responses:
+        '200':
+          description: up
+        '503':
+          description: database or queue down
+  /auth/login:
+    post:
+      summary: Sign in with email and password (10 tries per minute per IP)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - email
+              - password
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: A session, or the next step (code, or MFA enrolment for roles that require it)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - $ref: '#/components/schemas/Session'
+                - type: object
+                  properties:
+                    mfaRequired:
+                      const: true
+                    mfaToken:
+                      type: string
+                - type: object
+                  properties:
+                    mfaSetupRequired:
+                      const: true
+                    mfaToken:
+                      type: string
+        '401':
+          $ref: '#/components/responses/Error'
+  /auth/mfa/verify:
+    post:
+      summary: Second step - 6-digit code or a one-use recovery code
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mfaToken:
+                  type: string
+                code:
+                  type: string
+      responses:
+        '200':
+          description: Session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '401':
+          $ref: '#/components/responses/Error'
+  /auth/mfa/setup:
+    post:
+      summary: Start authenticator enrolment (with mfaToken from sign-in, or a Bearer token)
+      security:
+      - {}
+      - bearer: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mfaToken:
+                  type: string
+      responses:
+        '200':
+          description: QR code and key
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  otpauthUrl:
+                    type: string
+                  secret:
+                    type: string
+                  qrDataUrl:
+                    type: string
+  /auth/mfa/confirm:
+    post:
+      summary: Confirm enrolment with the first code. Returns 10 recovery codes (and a session when started from sign-in)
+      security:
+      - {}
+      - bearer: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mfaToken:
+                  type: string
+                code:
+                  type: string
+      responses:
+        '200':
+          description: recovery codes
+        '401':
+          $ref: '#/components/responses/Error'
+  /auth/refresh:
+    post:
+      summary: Rotate the refresh cookie and get a new access token. Re-use of an old cookie ends the whole sign-in.
+      security: []
+      parameters:
+      - in: header
+        name: x-esign-csrf
+        required: true
+        schema:
+          const: '1'
+      responses:
+        '200':
+          description: Session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '401':
+          $ref: '#/components/responses/Error'
+  /auth/logout:
+    post:
+      summary: End this sign-in on the server and clear the cookie
+      security: []
+      parameters:
+      - in: header
+        name: x-esign-csrf
+        required: true
+        schema:
+          const: '1'
+      responses:
+        '204':
+          description: signed out
+  /auth/activation/{token}:
+    get:
+      summary: Check an activation link (public). Returns { email, fullName } of the PENDING account.
+      security: []
+      parameters:
+      - in: path
+        name: token
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: '{ email, fullName }'
+        '400':
+          $ref: '#/components/responses/Error'
+  /auth/password/forgot:
+    post:
+      summary: Email a password reset link (public). Always { ok true }, whether or not the email has an account; a never-activated account gets a new activation link instead.
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+      responses:
+        '200':
+          description: '{ ok: true }'
+  /auth/password/reset/{token}:
+    get:
+      summary: Check a password reset link (public). Returns { email, fullName }.
+      security: []
+      parameters:
+      - in: path
+        name: token
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: '{ email, fullName }'
+        '400':
+          $ref: '#/components/responses/Error'
+  /auth/password/reset:
+    post:
+      summary: Choose a new password from a reset link (public). Ends every session; two-step sign-in still applies. Refused (400) if it is one of the person's last 5 passwords.
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, newPassword]
+              properties:
+                token:
+                  type: string
+                newPassword:
+                  type: string
+      responses:
+        '200':
+          description: '{ email }'
+        '400':
+          $ref: '#/components/responses/Error'
+  /auth/mfa/options:
+    get:
+      summary: Ways of two-step sign-in offered (public). { app true, sms } where sms is false in production without an SMS provider.
+      security: []
+      responses:
+        '200':
+          description: '{ app, sms }'
+  /auth/mfa/sms/setup:
+    post:
+      summary: Start two-step sign-in by text message; sends a code to the phone. With the set-up mfaToken from sign-in, or an access token. Then confirm with /auth/mfa/confirm.
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone]
+              properties:
+                mfaToken:
+                  type: string
+                phone:
+                  type: string
+                  description: International form (+250788123456); Rwandan 07… numbers are accepted.
+      responses:
+        '200':
+          description: '{ phoneHint }'
+        '429':
+          description: a code was sent less than a minute ago, or 5 in the last hour
+  /auth/mfa/sms/resend:
+    post:
+      summary: Send a new sign-in code by text message (public, with the mfaToken from sign-in)
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mfaToken]
+              properties:
+                mfaToken:
+                  type: string
+      responses:
+        '200':
+          description: '{ phoneHint }'
+        '429':
+          description: too soon or too many codes
+  /auth/activate:
+    post:
+      summary: Choose the first password from an activation link (public); the account becomes ACTIVE. The person then signs in.
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - token
+              - newPassword
+              properties:
+                token:
+                  type: string
+                newPassword:
+                  type: string
+      responses:
+        '200':
+          description: '{ email }'
+        '400':
+          $ref: '#/components/responses/Error'
+  /auth/me:
+    get:
+      summary: The signed-in user
+      responses:
+        '200':
+          description: user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicUser'
+  /auth/password:
+    post:
+      summary: Change own password; signs out other devices and returns a new session. Refused (403) if it is one of the last 5 passwords.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                currentPassword:
+                  type: string
+                newPassword:
+                  type: string
+                  minLength: 12
+      responses:
+        '200':
+          description: Session
+        '403':
+          $ref: '#/components/responses/Error'
+  /users:
+    get:
+      summary: List staff accounts (ADMIN, AUDITOR)
+      parameters:
+      - in: query
+        name: q
+        schema:
+          type: string
+      responses:
+        '200':
+          description: users
+    post:
+      summary: Add a user (ADMIN). The account is PENDING; an activation link is emailed to the person. Returns { user, activationExpiresAt }.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - email
+              - fullName
+              - roles
+              properties:
+                email:
+                  type: string
+                fullName:
+                  type: string
+                jobTitle:
+                  type: string
+                departmentId:
+                  type: string
+                  format: uuid
+                roles:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Role'
+      responses:
+        '201':
+          description: created
+        '409':
+          $ref: '#/components/responses/Error'
+  /users/signers:
+    post:
+      summary: Add a colleague as an internal signer (ADMIN, SENDER). Creates a PENDING account with the Signer role and emails an activation link; returns the existing account if it already has the Signer role. Senders are limited to INTERNAL_EMAIL_DOMAINS when set.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, fullName]
+              properties:
+                email:
+                  type: string
+                fullName:
+                  type: string
+      responses:
+        '201':
+          description: '{ id, fullName, email, pending, existing }'
+        '409':
+          $ref: '#/components/responses/Error'
+  /users/directory:
+    get:
+      summary: Active staff (name, email, title, department) for picking signers and approvers. Any signed-in user. With signers=1, only people with the Signer role, including those waiting for activation (pending true).
+      responses:
+        '200':
+          description: people
+  /users/{id}:
+    patch:
+      summary: Change name, title, department, roles or status (ADMIN). Role changes and disabling end the user's sessions at once.
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: updated
+        '400':
+          $ref: '#/components/responses/Error'
+  /users/{id}/reset-password:
+    post:
+      summary: Reset a password (ADMIN). The old password stops at once, sessions end, lock-out clears, and a reset link is emailed to the person.
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: '{ email, resetExpiresAt }'
+  /users/{id}/resend-activation:
+    post:
+      summary: Email a new activation link to a PENDING user (ADMIN); earlier links stop working
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: '{ activationExpiresAt }'
+        '400':
+          $ref: '#/components/responses/Error'
+  /users/{id}/reset-mfa:
+    post:
+      summary: Remove the user's authenticator (lost phone) (ADMIN)
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: ok
+  /departments:
+    get:
+      summary: All departments
+      responses:
+        '200':
+          description: list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Department'
+    post:
+      summary: Add (ADMIN)
+      responses:
+        '201':
+          description: created
+        '409':
+          $ref: '#/components/responses/Error'
+  /departments/{id}:
+    patch:
+      summary: Edit (ADMIN). Code is frozen once used in a reference number.
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: updated
+  /document-types:
+    get:
+      summary: All document types
+      responses:
+        '200':
+          description: list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DocumentType'
+    post:
+      summary: Add (ADMIN)
+      responses:
+        '201':
+          description: created
+  /document-types/{id}:
+    patch:
+      summary: Edit (ADMIN)
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: updated
+  /settings/approval:
+    get:
+      summary: Currency used for approval amounts
+      responses:
+        '200':
+          description: '{ currency: "RWF" | null }'
+    put:
+      summary: Set it (ADMIN)
+      responses:
+        '200':
+          description: saved
+  /approval-policies:
+    get:
+      summary: Approval chains with their steps (ADMIN, AUDITOR, SENDER, APPROVER)
+      responses:
+        '200':
+          description: list
+    post:
+      summary: Add a chain (ADMIN)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalPolicyInput'
+      responses:
+        '201':
+          description: created
+  /approval-policies/{id}:
+    put:
+      summary: Replace a chain's steps (ADMIN)
+      parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalPolicyInput'
+      responses:
+        '200':
+          description: saved
+  /audit/events:
+    get:
+      summary: Activity log, newest first (ADMIN, AUDITOR)
+      parameters:
+      - in: query
+        name: documentId
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: actorUserId
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: type
+        schema:
+          type: string
+        description: prefix, e.g. "auth."
+      - in: query
+        name: before
+        schema:
+          type: integer
+        description: event id for paging
+      - in: query
+        name: limit
+        schema:
+          type: integer
+          maximum: 200
+          default: 50
+      responses:
+        '200':
+          description: events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditEvent'
+  /audit/verify:
+    get:
+      summary: Re-compute the whole hash chain (ADMIN, AUDITOR)
+      responses:
+        '200':
+          description: '{ ok, checked, lastHash, brokenAtId?, reason? }'
+  /documents:
+    get:
+      summary: Documents I sent, am on, or (auditors) all. Other people's drafts are never listed.
+      parameters:
+      - in: query
+        name: filter
+        schema:
+          type: string
+          enum:
+          - all
+          - waiting
+          - progress
+          - completed
+          - drafts
+          - declined
+          - voided
+          - expired
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: title, supplier or reference
+      - in: query
+        name: departmentId
+        schema:
+          type: string
+          format: uuid
+      - in: query
+        name: from
+        schema:
+          type: string
+          format: date
+        description: YYYY-MM-DD, Kigali time
+      - in: query
+        name: to
+        schema:
+          type: string
+          format: date
+        description: YYYY-MM-DD, Kigali time
+      - in: query
+        name: folderId
+        schema:
+          type: string
+        description: a folder id, or "none" for documents not in any of my folders
+      responses:
+        '200':
+          description: list with recipients
+    post:
+      summary: Upload a PDF or Word file (SENDER). Virus-scanned, Word converted to PDF, PDFs with scripts/attachments refused. Creates a draft.
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+              - file
+              - title
+              - documentTypeId
+              properties:
+                file:
+                  type: string
+                  format: binary
+                title:
+                  type: string
+                documentTypeId:
+                  type: string
+                  format: uuid
+                sensitivity:
+                  type: string
+                  enum:
+                  - INTERNAL
+                  - CONFIDENTIAL
+                  - RESTRICTED
+                locale:
+                  type: string
+                  enum:
+                  - en-GB
+                  - en-US
+                  - fr-FR
+      responses:
+        '201':
+          description: draft with files and fingerprints
+        '400':
+          $ref: '#/components/responses/Error'
+        '422':
+          description: refused for safety (virus, scripts, password-protected, damaged)
+  /documents/counts:
+    get:
+      summary: 'Dashboard tiles: waiting for me, in progress, completed, my drafts'
+      responses:
+        '200':
+          description: counts
+  /documents/{id}:
+    get:
+      summary: Document with recipients, fields, files (fingerprints) and its activity. 404 if not visible to you.
+      parameters:
+      - &id001
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: document
+    patch:
+      summary: Edit draft details (sender only, drafts only)
+      parameters:
+      - *id001
+      responses:
+        '200':
+          description: document
+    delete:
+      summary: Delete a draft (sender only)
+      parameters:
+      - *id001
+      responses:
+        '204':
+          description: deleted
+  /documents/{id}/files/{kind}:
+    get:
+      summary: Download a file. kind = prepared (what is signed), original, converted, signed. Fingerprint re-checked on every read.
+      parameters:
+      - *id001
+      - in: path
+        name: kind
+        required: true
+        schema:
+          type: string
+          enum:
+          - original
+          - converted
+          - prepared
+          - signed
+          - sealed
+          - certificate
+        description: signed = the sealed copy if there is one, else the stamped copy
+      - in: query
+        name: download
+        schema:
+          type: string
+      responses:
+        '200':
+          description: file
+          content:
+            application/pdf: {}
+  /documents/{id}/recipients:
+    put:
+      summary: Set signers and copy recipients and the signing order (SEQUENTIAL, PARALLEL, MIXED by step number). Staff are recognised by email.
+      parameters:
+      - *id001
+      responses:
+        '200':
+          description: document
+  /documents/{id}/fields:
+    put:
+      summary: Replace all fields. Positions are fractions of the page as shown (0..1).
+      parameters:
+      - *id001
+      responses:
+        '200':
+          description: document
+  /documents/{id}/send:
+    post:
+      summary: 'Send. If the document type needs approval: status PENDING_APPROVAL, approvers asked in order, reference number at the last approval.
+        Otherwise: reference number now and the first signers are invited. Each signer needs a signature or initials field.'
+      parameters:
+      - *id001
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                emailSubject:
+                  type: string
+                emailMessage:
+                  type: string
+                expiresInDays:
+                  type: integer
+                  minimum: 1
+                  maximum: 180
+                  default: 30
+                reminderEveryDays:
+                  type:
+                  - integer
+                  - 'null'
+                  minimum: 1
+                  maximum: 30
+                  default: 3
+                  description: Email unsigned signers again every N days; null for no reminders
+      responses:
+        '200':
+          description: document
+  /documents/{id}/void:
+    post:
+      summary: Cancel a document out for signing (sender only). Links stop working; invitees are emailed.
+      parameters:
+      - *id001
+      responses:
+        '200':
+          description: document
+  /documents/{id}/recipients/{recipientId}/resend:
+    post:
+      summary: Email a fresh link to someone who has not signed yet; the old link stops working
+      parameters:
+      - *id001
+      - in: path
+        name: recipientId
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: document
+  /documents/{id}/sign-session:
+    post:
+      summary: 'Staff signer: start a signing session without an emailed code (staff sign-in already verified them)'
+      parameters:
+      - *id001
+      responses:
+        '200':
+          description: '{ signToken, expiresIn }'
+  /contacts:
+    get:
+      summary: People outside Ruliba documents were sent to (for autocomplete)
+      parameters:
+      - in: query
+        name: q
+        schema:
+          type: string
+      responses:
+        '200':
+          description: contacts
+  /me/signatures:
+    get:
+      summary: My saved signature and initials
+      responses:
+        '200':
+          description: list
+    put:
+      summary: Save my signature or initials (PNG)
+      responses:
+        '200':
+          description: saved
+  /me/signatures/{kind}:
+    delete:
+      summary: Remove a saved signature
+      parameters:
+      - in: path
+        name: kind
+        required: true
+        schema:
+          type: string
+          enum:
+          - SIGNATURE
+          - INITIALS
+      responses:
+        '204':
+          description: removed
+  /sign/{token}:
+    get:
+      summary: What this link is for, and whether it can still be used (ready, completed, declined, voided, expired, waiting, invalid). Every
+        open is logged.
+      security: []
+      parameters:
+      - &id002
+        in: path
+        name: token
+        required: true
+        schema:
+          type: string
+        description: From the invitation email. Never logged.
+      responses:
+        '200':
+          description: '{ state, documentTitle, senderName, recipientName, emailHint }'
+  /sign/{token}/code:
+    post:
+      summary: Email a 6-digit code (10 minutes; at most one a minute and 5 an hour)
+      security: []
+      parameters:
+      - *id002
+      responses:
+        '200':
+          description: sent
+        '429':
+          description: too soon or too many
+  /sign/{token}/verify:
+    post:
+      summary: Check the code (5 tries) and open a 60-minute signing session
+      security: []
+      parameters:
+      - *id002
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                  pattern: ^\d{6}$
+      responses:
+        '200':
+          description: '{ signToken, expiresIn }'
+  /sign/session:
+    get:
+      summary: 'The signer''s view: document summary, consent text, my fields'
+      security: &id003
+      - signSession: []
+      responses:
+        '200':
+          description: session view
+  /sign/session/file:
+    get:
+      summary: The PDF to sign
+      security: *id003
+      responses:
+        '200':
+          description: PDF
+          content:
+            application/pdf: {}
+  /sign/session/consent:
+    post:
+      summary: Agree to sign electronically (consent text version recorded)
+      security: *id003
+      responses:
+        '200':
+          description: '{ consentAt }'
+  /sign/session/complete:
+    post:
+      summary: 'Submit my fields and sign. Signatures are PNG data URLs. Name and date are filled in by the server. Last signer triggers the signed
+        copy. Stamp fields: staff send stampId (one of their allowed stamps); outside signers send image.'
+      security: *id003
+      responses:
+        '200':
+          description: '{ done, documentCompleted }'
+  /sign/session/decline:
+    post:
+      summary: 'Decline with a reason: signing stops for everyone, the sender is emailed'
+      security: *id003
+      responses:
+        '200':
+          description: '{ declined }'
+  /sign/session/saved-signature:
+    get:
+      summary: 'Staff sessions only: my saved signature or initials'
+      security: *id003
+      parameters:
+      - in: query
+        name: kind
+        schema:
+          type: string
+          enum:
+          - SIGNATURE
+          - INITIALS
+      responses:
+        '200':
+          description: '{ image, method }'
+  /documents/{id}/approval-preview:
+    get:
+      summary: Who will approve this document (most specific active chain, value threshold applied), or what is missing
+      parameters:
+      - &id004
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: '{ required, policyName, problem, steps: [{ label, approverName }] }'
+  /documents/{id}/approve:
+    post:
+      summary: Approve (only the approver whose turn it is). Last approval gives the reference number and invites signers.
+      parameters:
+      - *id004
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comment:
+                  type:
+                  - string
+                  - 'null'
+                  maxLength: 500
+      responses:
+        '200':
+          description: document
+        '409':
+          description: not your turn, or already answered
+  /documents/{id}/return:
+    post:
+      summary: 'Return for changes: back to DRAFT, approvers removed, sender emailed the reason'
+      parameters:
+      - *id004
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - reason
+              properties:
+                reason:
+                  type: string
+                  minLength: 3
+                  maxLength: 500
+      responses:
+        '200':
+          description: '{ returned: true }'
+  /templates:
+    get:
+      summary: Templates I can use (my department, shared, mine)
+      responses:
+        '200':
+          description: list with roles and field count
+    post:
+      summary: Save a prepared document as a template; each signer gets a role name
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - documentId
+              - name
+              - roles
+              properties:
+                documentId:
+                  type: string
+                  format: uuid
+                name:
+                  type: string
+                description:
+                  type:
+                  - string
+                  - 'null'
+                shared:
+                  type: boolean
+                  description: true = every department
+                roles:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      recipientId:
+                        type: string
+                        format: uuid
+                      roleName:
+                        type: string
+      responses:
+        '201':
+          description: template
+  /templates/{id}/use:
+    post:
+      summary: Create a draft from a template, filling each role with a person
+      parameters:
+      - *id004
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - title
+              - people
+              properties:
+                title:
+                  type: string
+                people:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      roleId:
+                        type: string
+                        format: uuid
+                      fullName:
+                        type: string
+                      email:
+                        type: string
+                        format: email
+      responses:
+        '201':
+          description: '{ id } of the new draft'
+  /templates/{id}:
+    delete:
+      summary: Remove a template (owner or administrator). Sent documents are not affected.
+      parameters:
+      - *id004
+      responses:
+        '204':
+          description: removed
+  /notifications:
+    get:
+      summary: My in-app notifications (bell), newest first, with unread count
+      responses:
+        '200':
+          description: '{ unread, items: [{ id, subject, link, createdAt, readAt }] }'
+  /notifications/read:
+    post:
+      summary: Mark notifications read (all, or the given ids)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '200':
+          description: '{ ok }'
+  /verify:
+    post:
+      summary: 'Public "Check a document": is this PDF exactly a sealed/signed copy or certificate from eSign? The file is hashed in memory, never
+        stored. Rate limited.'
+      security: []
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: '{ match, sha256, kind, sealed, title, referenceNo, completedAt, signers: [{ fullName, completedAt }] }'
+  /verify/authority-certificate:
+    get:
+      summary: 'Public: the Ruliba Clays eSign Authority certificate (PEM), to add to a PDF reader''s trusted list'
+      security: []
+      responses:
+        '200':
+          description: PEM
+          content:
+            application/x-pem-file: {}
+  /signing/certificates:
+    get:
+      summary: Platform certificates (authority, document seal) without keys. Administrators and auditors.
+      responses:
+        '200':
+          description: list
+  /reports/summary:
+    get:
+      summary: Totals, time to complete, by department, type and month, pages not printed. Administrators and auditors.
+      parameters:
+      - in: query
+        name: from
+        schema:
+          type: string
+          format: date
+        description: YYYY-MM-DD, Kigali time
+      - in: query
+        name: to
+        schema:
+          type: string
+          format: date
+        description: YYYY-MM-DD, Kigali time
+      responses:
+        '200':
+          description: summary
+  /reports/documents.csv:
+    get:
+      summary: Sent documents as CSV (formula-safe). Export is logged.
+      parameters:
+      - in: query
+        name: from
+        schema:
+          type: string
+          format: date
+        description: YYYY-MM-DD, Kigali time
+      - in: query
+        name: to
+        schema:
+          type: string
+          format: date
+        description: YYYY-MM-DD, Kigali time
+      responses:
+        '200':
+          description: CSV
+          content:
+            text/csv: {}
+  /retention/due:
+    get:
+      summary: Completed documents past the retention period of their type. Nothing is deleted automatically.
+      responses:
+        '200':
+          description: list
+  /retention/{id}/purge:
+    post:
+      summary: 'Administrators: delete the stored files of a document past retention. Record, fingerprints and audit trail remain.'
+      parameters:
+      - *id004
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - reason
+              properties:
+                reason:
+                  type: string
+                  minLength: 5
+                  maxLength: 500
+      responses:
+        '200':
+          description: '{ purged, files }'
+        '400':
+          description: not yet due
+  /stamps:
+    get:
+      summary: Company stamps with image and the people allowed to apply each. Administrators.
+      responses:
+        '200':
+          description: list
+    post:
+      summary: Add a stamp (PNG data URL) and who may apply it. Administrators.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - name
+              - image
+              properties:
+                name:
+                  type: string
+                image:
+                  type: string
+                userIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '201':
+          description: '{ id }'
+  /stamps/{id}:
+    patch:
+      summary: Rename, withdraw/restore, or change who may apply a stamp. Administrators.
+      parameters:
+      - &id005
+        in: path
+        name: id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                active:
+                  type: boolean
+                userIds:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '200':
+          description: '{ ok }'
+  /sign/session/stamps:
+    get:
+      summary: 'Staff sessions: the Ruliba stamps this signer may apply (empty for outside signers, who upload their own).'
+      security:
+      - signSession: []
+      responses:
+        '200':
+          description: '[{ id, name, image }]'
+  /folders:
+    get:
+      summary: My folders with document counts
+      responses:
+        '200':
+          description: '[{ id, name, documentCount }]'
+    post:
+      summary: Create a folder (names unique per person, ignoring case)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - name
+              properties:
+                name:
+                  type: string
+                  maxLength: 80
+      responses:
+        '201':
+          description: '{ id, name }'
+        '409':
+          description: name already used
+  /folders/{id}:
+    patch:
+      summary: Rename my folder
+      parameters:
+      - *id005
+      responses:
+        '200':
+          description: '{ id, name }'
+    delete:
+      summary: Delete my folder; its documents are not touched
+      parameters:
+      - *id005
+      responses:
+        '204':
+          description: deleted
+  /documents/{id}/folder:
+    put:
+      summary: File a document I can see into one of my folders, or take it out (folderId null)
+      parameters:
+      - *id005
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                folderId:
+                  type:
+                  - string
+                  - 'null'
+                  format: uuid
+      responses:
+        '200':
+          description: '{ folderId }'

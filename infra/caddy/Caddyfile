@@ -1,0 +1,56 @@
+# Ruliba Clays eSign — HTTPS entry point.
+# DOMAIN comes from the environment, e.g. esign.ruliba.com. Caddy obtains and renews the
+# TLS certificate automatically (needs ports 80 and 443 open and DNS pointing at the server).
+# For an internal-only name, set TLS_MODE to "internal" and install Caddy's root CA on staff PCs.
+{
+	email {$ACME_EMAIL:it@ruliba.com}
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+{$DOMAIN:localhost} {
+	tls {$TLS_MODE:}
+	encode zstd gzip
+	request_body {
+		max_size 30MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		# Only our own scripts, styles and fonts; QR codes and signatures are data: images; no framing.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
+		-Server
+	}
+
+	handle /api/* {
+		reverse_proxy api:3000 {
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	handle {
+		root * /srv
+		@immutable path /assets/*
+		header @immutable Cache-Control "public, max-age=31536000, immutable"
+		@shell path / /index.html /sw.js /manifest.webmanifest
+		header @shell Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+
+	# Signing links carry a secret token in the path: never write it to the access log.
+	log {
+		output stdout
+		format filter {
+			wrap json
+			fields {
+				request>uri regexp "/sign/[A-Za-z0-9_-]{20,}" "/sign/[hidden]"
+			}
+		}
+	}
+}

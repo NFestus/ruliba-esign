@@ -1,0 +1,19 @@
+# Local development services only (the app itself runs with npm scripts).
+#   docker compose -f compose.dev.yml up -d
+# Mailpit shows every email the app sends at http://localhost:8025
+# (set EMAIL_TRANSPORT=smtp, SMTP_HOST=localhost, SMTP_PORT=1025 in apps/api/.env).
+name: ruliba-esign-dev
+services:
+  postgres:
+    image: postgres:16
+    environment: { POSTGRES_USER: postgres, POSTGRES_HOST_AUTH_METHOD: trust, POSTGRES_DB: esign }
+    ports: ['5433:5432']   # 5433, so it never clashes with a PostgreSQL already installed on the PC
+    volumes: [dev_pg:/var/lib/postgresql/data]
+  redis:
+    image: redis:7.4-alpine
+    ports: ['6379:6379']
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports: ['8025:8025', '1025:1025']
+volumes:
+  dev_pg: {}

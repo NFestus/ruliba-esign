@@ -1,0 +1,27 @@
+{
+  "name": "ruliba-esign",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Ruliba Clays eSign \u2014 internal e-signature platform",
+  "workspaces": [
+    "packages/shared",
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "build": "npm run build -w packages/shared && npm run build -w apps/api && npm run build -w apps/web",
+    "test": "npm run test -w packages/shared && npm run test -w apps/api && npm run test -w apps/web",
+    "lint": "npm run lint -w apps/api && npm run lint -w apps/web",
+    "dev:api": "npm run start:dev -w apps/api",
+    "dev:worker": "npm run start:worker:dev -w apps/api",
+    "dev:web": "npm run dev -w apps/web",
+    "db:migrate": "npm run db:migrate -w apps/api",
+    "db:seed": "npm run seed -w apps/api"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "overrides": {
+    "multer": "^2.5.0"
+  }
+}

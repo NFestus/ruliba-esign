@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: esign_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-retries 10
+      redis:
+        image: redis:7.4-alpine
+        ports: ['6379:6379']
+    env:
+      TEST_DATABASE_URL: postgresql://postgres@localhost:5432/esign_test
+      TEST_REDIS_URL: redis://localhost:6379/1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Build shared package
+        run: npm run build -w packages/shared
+      - name: Type-check
+        run: npm run lint
+      - name: Check migrations match the schema
+        run: |
+          cd apps/api && npx drizzle-kit generate --name ci-check
+          if [ -n "$(git status --porcelain drizzle)" ]; then
+            echo "::error::src/db/schema.ts changed without a migration. Run: npm run db:generate -w apps/api"
+            git status --porcelain drizzle; exit 1
+          fi
+      - name: Tests (shared, API unit + end-to-end, web)
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Dependency audit (production dependencies, high and critical)
+        run: npm audit --omit=dev --audit-level=high
+
+  images:
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with: { context: ., target: api, push: false, tags: 'ruliba-esign-api:ci' , load: true }
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with: { context: ., target: web, push: false, tags: 'ruliba-esign-web:ci', load: true }
+      - name: Scan images for known vulnerabilities
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: ruliba-esign-api:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
