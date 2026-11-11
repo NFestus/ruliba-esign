@@ -1,0 +1,6 @@
+# Scripts and container config run inside Linux: keep Unix line endings on every checkout.
+*.sh text eol=lf
+Dockerfile text eol=lf
+Caddyfile* text eol=lf
+*.caddy text eol=lf
+*.yml text eol=lf
