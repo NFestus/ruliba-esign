@@ -33,18 +33,53 @@ For an intranet-only name, set `TLS_MODE=internal` and install Caddy's root cert
 git clone <ruliba-repository> /opt/ruliba-esign && cd /opt/ruliba-esign
 cp .env.example .env && chmod 600 .env
 # Fill every value. Generate secrets:
-openssl rand -base64 48   # each of DB_OWNER_PASSWORD, DB_APP_PASSWORD, REDIS_PASSWORD, JWT_*
+openssl rand -hex 24      # each of DB_OWNER_PASSWORD, DB_APP_PASSWORD, REDIS_PASSWORD (hex: they go inside connection URLs)
+openssl rand -base64 48   # each of JWT_ACCESS_SECRET, JWT_MFA_SECRET, JWT_SIGN_SECRET
 openssl rand -base64 32   # MASTER_KEY
 docker compose build
 docker compose up -d postgres redis clamav gotenberg   # creates the two database roles on first start
 # ClamAV downloads its virus signatures on first start (a few minutes). Uploads are refused until it is ready.
-docker compose run --rm migrate               # creates the tables
+docker compose run --rm migrate               # creates the tables (later, `up` runs this by itself)
 docker compose run --rm seed                  # departments, document types, approval chain, first admin
-docker compose up -d
+docker compose up -d                          # runs the migrations again (nothing to do), then starts everything
 ```
+
+Use `openssl rand -hex` for the database and Redis passwords: base64 output can contain `/`, `+` and `=`,
+which break the `postgresql://…` and `redis://…` addresses built from them. Set them **before the first
+start**: PostgreSQL fixes the passwords when its volume is first created.
 
 Then remove `SEED_ADMIN_PASSWORD` from `.env`. The first administrator signs in, sets up the
 authenticator app, and replaces the seed password.
+
+## 4a. Installing with Dokploy
+
+Use `compose.dokploy.yml` instead of `compose.yml`. Dokploy's own Traefik owns ports 80 and 443 and handles
+the domain and the HTTPS certificate; Caddy runs behind it on plain HTTP (`infra/caddy/Caddyfile.dokploy`)
+and still adds the security headers, serves the web app and passes `/api` to the API.
+
+1. **Server:** as in section 2 (Ubuntu, 4 vCPU, 8 GB RAM at least: ClamAV alone uses about 1.5–3 GB). Install Dokploy.
+   Open ports 80 and 443 (and Dokploy's admin port only from Ruliba's office or VPN).
+2. **DNS:** an A record for `esign.ruliba.com` pointing at the server.
+3. **Dokploy → Create service → Compose:** repository `NFestus/ruliba-esign` (connect GitHub or add a deploy key),
+   branch `main`, compose path **`./compose.dokploy.yml`**.
+4. **Environment tab:** paste the variables from `.env.example` and fill every value (secrets as in section 4,
+   `openssl rand -hex 24` for the three passwords). Include `SEED_ADMIN_EMAIL`, `SEED_ADMIN_NAME` and
+   `SEED_ADMIN_PASSWORD` for the first deploy. `TLS_MODE` and `ACME_EMAIL` are not used under Dokploy.
+5. **Domains tab:** add `esign.ruliba.com` on service **`caddy`**, container port **80**, HTTPS on, certificate Let's Encrypt.
+   `DOMAIN` in the environment must be the same name (it builds the links in emails).
+6. **Deploy.** Every deploy builds the images, runs the migrations and the seed (both safe to repeat), then starts
+   the API, worker and Caddy. ClamAV needs a few minutes on its first start before uploads work.
+7. After the first administrator has signed in, remove `SEED_ADMIN_PASSWORD` from the environment and redeploy.
+8. **Traefik access logs:** links for outside signers carry a secret token in the path (`/sign/<token>`). Caddy hides
+   it in its own log, but if Traefik's access log is switched on in Dokploy, it is written there. Switch the access
+   log off, or filter `/sign/` paths, in Dokploy's Traefik settings.
+9. **Backups:** Dokploy names the project after the app (containers `<app-name>-postgres-1`, volumes
+   `<app-name>_pg_data` and `<app-name>_files_data`). Copy `infra/backup/backup.sh` to e.g. `/opt/esign-backup/` and
+   run it from cron with `COMPOSE_PROJECT=<app-name>` (section 7). Dokploy's own volume backups can be used as well.
+
+The client IP chain is Traefik → Caddy → API, so `compose.dokploy.yml` sets `TRUST_PROXY: 2`. Do not change it:
+with the wrong value every request looks as if it came from Traefik, which breaks the IP addresses in the
+activity log and makes all staff share one sign-in rate limit.
 
 ## 5. Keys (the most important section)
 
@@ -101,6 +136,8 @@ Texts are sent by the worker (the only container with internet access), with up 
   Store the private key with the master key (section 5). Copy only the public key line to the server at `/etc/esign/backup-recipient.txt`.
 - On the server-room machine, create a user `esign-backup` that can receive files over SSH (rsync) and nothing else.
 - Set `REMOTE` in `infra/backup/backup.sh`, then add the cron line shown at the top of that script.
+  The script finds the containers by Docker Compose project name: `ruliba-esign` with `compose.yml`,
+  or the app name under Dokploy (`COMPOSE_PROJECT=<app-name>`).
 - **Restore test, every quarter** (record each one in the IT log):
   ```bash
   age -d -i esign-backup.key db_<date>.dump.age > db.dump
@@ -127,15 +164,17 @@ Add `JWT_SIGN_SECRET` to `.env` (`openssl rand -base64 48`). It signs the 60-min
 | Worker schedules | Reminders hourly at :00, expiry at :05, finishing stuck documents every 5 minutes, audit check 02:15 Kigali time. Nothing to configure; the worker must be running. |
 | Public check page | `https://esign.ruliba.com/check` and `POST /api/verify` work without sign-in. They are rate limited (10 checks a minute per IP address) and accept PDFs up to 30 MB. |
 | Digital seal | Created automatically when the first document completes. Then download the authority certificate (Settings → Digital seal) and push it to Ruliba PCs as a trusted root in Adobe Reader (admin guide section 6). Record its fingerprint. |
-| Migration `0003_phase2_3.sql` | Applied by `docker compose run --rm migrate` like the others. |
+| Migration `0003_phase2_3.sql` | Applied automatically by the `migrate` service at `docker compose up`, like the others. |
 
 ## 8. Updating
 
 ```bash
 cd /opt/ruliba-esign && git pull
 export VERSION=<new version>
-docker compose build && docker compose run --rm migrate && docker compose up -d
+docker compose build && docker compose up -d   # the migrate service runs first
 ```
+
+Under Dokploy: push to `main` and press **Deploy** (or turn on auto-deploy); migrations run on every deploy.
 
 To roll back, set `VERSION` to the previous version and run `docker compose up -d`. Migrations only add things, so the previous version keeps working on the newer database. A release that needs a breaking change will say so in its notes.
 

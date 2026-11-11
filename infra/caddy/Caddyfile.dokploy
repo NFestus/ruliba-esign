@@ -1,0 +1,17 @@
+# Ruliba Clays eSign behind Dokploy (compose.dokploy.yml).
+# Dokploy's Traefik receives the traffic for the domain, handles HTTPS and the certificate,
+# and forwards plain HTTP to this container on port 80. Caddy adds the security headers,
+# serves the web app and passes /api to the API.
+{
+	auto_https off
+	servers {
+		# Traefik sits on a private Docker network: trust its X-Forwarded-For / -Proto.
+		trusted_proxies static private_ranges
+	}
+}
+
+import esign.caddy
+
+:80 {
+	import esign
+}

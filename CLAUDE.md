@@ -37,6 +37,8 @@ npm run db:generate -w apps/api           # drizzle-kit: schema.ts -> new SQL mi
 npm test                                  # shared + API unit/e2e + web
 ```
 
+Deployment: `compose.yml` on a plain server (Caddy handles HTTPS; `infra/caddy/Caddyfile`), or `compose.dokploy.yml` under Dokploy (Traefik in front, Caddy on HTTP `:80` with `Caddyfile.dokploy`, `TRUST_PROXY: 2`, caddy on the external `dokploy-network`, migrations + seed run on every deploy). Shared Caddy rules live in `infra/caddy/esign.caddy`. Keep the two compose files in step. See `docs/deployment.md` 4 / 4a.
+
 Local services: `docker compose -f compose.dev.yml up -d` (Postgres on **5433**, Redis 6379, Mailpit UI :8025).
 E2E tests need a separate DB (they drop its schema): `createdb esign_test`, then e.g.
 `TEST_DATABASE_URL=postgresql://postgres@localhost:5433/esign_test npx jest --runInBand` in `apps/api`.

@@ -1,9 +1,9 @@
-# Production-style stack: one server, Docker Compose.
+# Production-style stack: one server, Docker Compose, Caddy handling HTTPS itself.
+# (Deploying with Dokploy instead? Use compose.dokploy.yml; keep the two files in step.)
 #   cp .env.example .env   # then fill in every value (docs/deployment.md)
 #   docker compose build
-#   docker compose run --rm migrate
 #   docker compose run --rm seed     # first install only
-#   docker compose up -d
+#   docker compose up -d             # runs the database migrations first, every time
 # Data lives in named volumes; see docs/deployment.md for backups.
 
 name: ruliba-esign
@@ -68,6 +68,7 @@ services:
       redis: { condition: service_healthy }
       clamav: { condition: service_started }
       gotenberg: { condition: service_started }
+      migrate: { condition: service_completed_successfully }
     volumes: [files_data:/data/files]
     read_only: true
     tmpfs: [/tmp]
@@ -75,6 +76,8 @@ services:
     networks: [internal]
 
   worker:
+    # Same image as the API. The build entry stops Compose trying to download it from Docker Hub.
+    build: { context: ., target: api }
     image: ruliba-esign-api:${VERSION:-latest}
     restart: unless-stopped
     command: ['node', 'dist/worker.js']
@@ -82,6 +85,7 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
     healthcheck: { disable: true }
     volumes: [files_data:/data/files]
     read_only: true
@@ -89,17 +93,21 @@ services:
     security_opt: [no-new-privileges:true]
     networks: [internal, egress]
 
-  # One-off jobs: run as the table owner, which the app itself never uses.
+  # Runs the database migrations on every `up`, before the API and worker start, then exits.
+  # Runs as the table owner, which the app itself never uses.
   migrate:
+    build: { context: ., target: api }
     image: ruliba-esign-api:${VERSION:-latest}
-    profiles: [tools]
+    restart: 'no'
     command: ['node', 'dist/migrate.js']
     environment:
       MIGRATION_DATABASE_URL: postgresql://esign_owner:${DB_OWNER_PASSWORD}@postgres:5432/esign
     depends_on: { postgres: { condition: service_healthy } }
     networks: [internal]
 
+  # One-off: `docker compose run --rm seed` (departments, document types, first admin). Safe to repeat.
   seed:
+    build: { context: ., target: api }
     image: ruliba-esign-api:${VERSION:-latest}
     profiles: [tools]
     command: ['node', 'dist/seed.js']

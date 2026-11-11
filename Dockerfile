@@ -2,6 +2,7 @@
 # One Dockerfile, two images:
 #   --target api  -> API and worker (same image, different command)
 #   --target web  -> Caddy serving the web app and proxying /api to the API
+#                    (Caddyfile on a plain server; Caddyfile.dokploy behind Dokploy's Traefik)
 # Pin base images by digest in production (docs/deployment.md, "Image pinning").
 
 ARG NODE_IMAGE=node:22-bookworm-slim
@@ -46,5 +47,5 @@ CMD ["node", "dist/main.js"]
 
 # ───────────── Web (static files + reverse proxy) ─────────────
 FROM ${CADDY_IMAGE} AS web
-COPY infra/caddy/Caddyfile /etc/caddy/Caddyfile
+COPY infra/caddy/ /etc/caddy/
 COPY --from=build /app/apps/web/dist /srv
