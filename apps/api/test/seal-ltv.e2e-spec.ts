@@ -144,8 +144,11 @@ describe('Seal with trusted timestamp and long-term validation data', () => {
     const token = readToken(Buffer.from(cms.subarray(tokenTlv.start, tokenTlv.end)));
     expect(token.imprint.equals(createHash('sha256').update(signatureValue).digest())).toBe(true);
 
-    // The DSS is an incremental update: the signed part of the file is unchanged
+    // The DSS is an incremental update: the signed part of the file is unchanged, and it includes
+    // the line break after %%EOF (Adobe Reader reports "altered" otherwise)
     expect(sealed.length).toBeGreaterThan(signedEnd);
+    expect(sealed.subarray(signedEnd - 6, signedEnd).toString('latin1')).toBe('%%EOF\n');
+    expect(sealed.subarray(signedEnd, signedEnd + 12).toString('latin1')).toMatch(/^\d+ 0 obj\n/);
     const doc = await PDFDocument.load(sealed);
     const dss = doc.context.lookup(doc.catalog.get(PDFName.of('DSS'))) as PDFDict;
     const arr = (k: string) => (doc.context.lookup(dss.get(PDFName.of(k))) as unknown as { size(): number }).size();

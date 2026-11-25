@@ -129,7 +129,9 @@ export async function appendDss(pdf: Buffer, data: { certs: Buffer[]; crls: Buff
   let next = doc.context.largestObjectNumber + 1;
   const parts: Buffer[] = [];
   const offsets: [number, number][] = [];
-  let at = pdf.length + 1; // after the leading newline
+  // The signed revision ends with "%%EOF" and its line break; start straight after it.
+  const sep = pdf[pdf.length - 1] === 0x0a ? Buffer.alloc(0) : Buffer.from('\n');
+  let at = pdf.length + sep.length;
   const push = (num: number, content: Buffer) => {
     offsets.push([num, at]);
     const chunk = Buffer.concat([Buffer.from(`${num} 0 obj\n`), content, Buffer.from('\nendobj\n')]);
@@ -164,5 +166,5 @@ export async function appendDss(pdf: Buffer, data: { certs: Buffer[]; crls: Buff
     offsets.map(([n, off]) => `${n} 1\n${String(off).padStart(10, '0')} ${String(gen(n)).padStart(5, '0')} n \n`).join('');
   const extra = [trailer.Info ? `/Info ${trailer.Info.toString()}` : '', trailer.ID ? `/ID ${trailer.ID.toString()}` : ''].join(' ');
   const tail = `${xref}trailer\n<< /Size ${next} /Root ${rootRef.toString()} ${extra} /Prev ${prev} >>\nstartxref\n${at}\n%%EOF\n`;
-  return Buffer.concat([pdf, Buffer.from('\n'), ...parts, Buffer.from(tail, 'latin1')]);
+  return Buffer.concat([pdf, sep, ...parts, Buffer.from(tail, 'latin1')]);
 }

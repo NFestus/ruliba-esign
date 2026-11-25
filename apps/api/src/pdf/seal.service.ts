@@ -1,7 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { pdflibAddPlaceholder } from '@signpdf/placeholder-pdf-lib';
-import signpdf from '@signpdf/signpdf';
-import { Signer } from '@signpdf/utils';
+import { findByteRange, Signer } from '@signpdf/utils';
 import { and, eq, gt, isNotNull, isNull, sql } from 'drizzle-orm';
 import forge from 'node-forge';
 import { constants, createPrivateKey, generateKeyPairSync, privateEncrypt, randomBytes } from 'node:crypto';
@@ -154,7 +153,7 @@ export class SealService {
     });
     const withPlaceholder = Buffer.from(await doc.save({ useObjectStreams: false }));
     const signer = new SealSigner(key, [seal.certPem, ca.certPem], tsa);
-    const signed = await signpdf.sign(withPlaceholder, signer);
+    const signed = await signPdf(withPlaceholder, signer);
 
     // Long-term validation: both chains and their revocation lists, stored in the file.
     const caDer = certDer(ca.certPem);
@@ -162,6 +161,35 @@ export class SealService {
     const sealed = await appendDss(signed, ltv);
     return { sealed, certificateFingerprint: seal.fingerprintSha256, timestampedAt: signer.token?.time ?? null };
   }
+}
+
+/**
+ * Fills the signature placeholder (as @signpdf/signpdf does), except that the signed revision keeps
+ * its end-of-line after %%EOF. signpdf removes it; with nothing appended that is harmless, but once
+ * the validation data is added as an incremental update, Adobe Reader counts the line break as part
+ * of the signed revision and reports the document as "altered or corrupted since it was signed".
+ */
+async function signPdf(input: Buffer, signer: Signer): Promise<Buffer> {
+  let end = input.length;
+  while (end > 0 && (input[end - 1] === 0x0a || input[end - 1] === 0x0d)) end--;
+  if (input.subarray(end - 5, end).toString('latin1') !== '%%EOF') throw new Error('PDF does not end with %%EOF');
+  let pdf = Buffer.concat([input.subarray(0, end), Buffer.from('\n')]);
+
+  const { byteRangePlaceholder, byteRangePlaceholderPosition } = findByteRange(pdf);
+  if (!byteRangePlaceholder || byteRangePlaceholderPosition === undefined) throw new Error('No signature placeholder found');
+  const byteRangeEnd = byteRangePlaceholderPosition + byteRangePlaceholder.length;
+  const placeholderPos = pdf.indexOf('<', pdf.indexOf('/Contents ', byteRangeEnd));
+  const placeholderEnd = pdf.indexOf('>', placeholderPos);
+  const withBrackets = placeholderEnd + 1 - placeholderPos;
+  const range = [0, placeholderPos, placeholderPos + withBrackets, pdf.length - (placeholderPos + withBrackets)];
+  const actual = `/ByteRange [${range.join(' ')}]`.padEnd(byteRangePlaceholder.length, ' ');
+  pdf = Buffer.concat([pdf.subarray(0, byteRangePlaceholderPosition), Buffer.from(actual), pdf.subarray(byteRangeEnd)]);
+
+  const signedBytes = Buffer.concat([pdf.subarray(0, range[1]), pdf.subarray(range[2])]);
+  const cms = await signer.sign(signedBytes);
+  if (cms.length * 2 > withBrackets - 2) throw new Error(`Signature exceeds placeholder length: ${cms.length * 2} > ${withBrackets - 2}`);
+  const hex = cms.toString('hex').padEnd(withBrackets - 2, '0');
+  return Buffer.concat([pdf.subarray(0, range[1]), Buffer.from(`<${hex}>`), pdf.subarray(range[2])]);
 }
 
 /**
