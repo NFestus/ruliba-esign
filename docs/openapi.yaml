@@ -1370,6 +1370,15 @@ paths:
           description: PEM
           content:
             application/x-pem-file: {}
+  /verify/crl:
+    get:
+      summary: 'Public: the authority''s current revocation list (DER), named in every seal certificate'
+      security: []
+      responses:
+        '200':
+          description: CRL
+          content:
+            application/pkix-crl: {}
   /signing/certificates:
     get:
       summary: Platform certificates (authority, document seal) without keys. Administrators and auditors.

@@ -163,6 +163,7 @@ Add `JWT_SIGN_SECRET` to `.env` (`openssl rand -base64 48`). It signs the 60-min
 | `AUDIT_ANCHOR_EMAIL` | Mailbox outside IT's control (e.g. the Finance Director) that receives the activity-log fingerprint every night. Keep those emails. |
 | Worker schedules | Reminders hourly at :00, expiry at :05, finishing stuck documents every 5 minutes, audit check 02:15 Kigali time. Nothing to configure; the worker must be running. |
 | Public check page | `https://esign.ruliba.com/check` and `POST /api/verify` work without sign-in. They are rate limited (10 checks a minute per IP address) and accept PDFs up to 30 MB. |
+| Timestamps | Every seal gets a timestamp from `TSA_URL` (default DigiCert). The server needs outbound HTTP (port 80) to `timestamp.digicert.com`, `crl3.digicert.com`, `crl4.digicert.com` and `cacerts.digicert.com`. If a firewall blocks them, documents stay "in progress" and the worker log shows "Timestamp authority ... could not be reached". |
 | Digital seal | Created automatically when the first document completes. Then download the authority certificate (Settings → Digital seal) and push it to Ruliba PCs as a trusted root in Adobe Reader (admin guide section 6). Record its fingerprint. |
 | Migration `0003_phase2_3.sql` | Applied automatically by the `migrate` service at `docker compose up`, like the others. |
 

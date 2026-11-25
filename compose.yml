@@ -33,6 +33,8 @@ x-api-env: &api-env
   GRAPH_CLIENT_SECRET: ${GRAPH_CLIENT_SECRET:-}
   GRAPH_SENDER: ${GRAPH_SENDER:-sign@ruliba.com}
   AUDIT_ANCHOR_EMAIL: ${AUDIT_ANCHOR_EMAIL:-}
+  # Independent timestamp authority for every seal (RFC 3161). Needs outbound HTTP from api and worker.
+  TSA_URL: ${TSA_URL:-http://timestamp.digicert.com}
   # Email domains senders may use when adding a colleague as an internal signer (e.g. ruliba.com). Empty = any.
   INTERNAL_EMAIL_DOMAINS: ${INTERNAL_EMAIL_DOMAINS:-}
   # Two-step sign-in by text message. "console" = SMS not offered in production.
@@ -73,7 +75,8 @@ services:
     read_only: true
     tmpfs: [/tmp]
     security_opt: [no-new-privileges:true]
-    networks: [internal]
+    # Outbound: the timestamp authority and its revocation lists when sealing a document.
+    networks: [internal, egress]
 
   worker:
     # Same image as the API. The build entry stops Compose trying to download it from Docker Hub.
@@ -167,7 +170,7 @@ networks:
   edge: {}
   # No route to the internet: database, Redis, files and converters cannot reach out.
   internal: { internal: true }
-  # Only the worker (email) and ClamAV (signature updates) may reach out.
+  # Only the API and worker (email, seal timestamps) and ClamAV (signature updates) may reach out.
   egress: {}
 
 volumes:

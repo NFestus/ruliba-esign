@@ -137,7 +137,7 @@ export class FinalizerService {
       };
       // Stamp the fields and the record page, then apply Ruliba's digital seal over the whole file.
       const stamped = await stampDocument(pdf, stamp, record);
-      const { sealed: signed, certificateFingerprint } = await this.sealer.seal(stamped, 'Signed by all parties with Ruliba Clays eSign');
+      const { sealed: signed, certificateFingerprint, timestampedAt } = await this.sealer.seal(stamped, 'Signed by all parties with Ruliba Clays eSign');
       const sha = sha256Hex(signed);
       const key = this.storage.newKey(`documents/${documentId}`);
       const { wrappedKey } = await this.storage.put(key, signed);
@@ -177,7 +177,7 @@ export class FinalizerService {
           type: 'document.completed',
           documentId,
           docSha256: sha,
-          details: { signedFileSha256: sha, certificateSha256: sha256Hex(cert), preparedSha256: prepared.sha256, signers: signers.length, fieldsStamped: stamp.length, sealCertificate: certificateFingerprint },
+          details: { signedFileSha256: sha, certificateSha256: sha256Hex(cert), preparedSha256: prepared.sha256, signers: signers.length, fieldsStamped: stamp.length, sealCertificate: certificateFingerprint, trustedTimestamp: timestampedAt?.toISOString() ?? null },
         },
         tx,
       );

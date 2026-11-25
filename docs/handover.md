@@ -94,7 +94,8 @@ These need a person, a contract or production access, and were not possible whil
 
 **Later improvements** (not built, in suggested order):
 
-1. **Trusted time-stamps** (RFC 3161) on each seal, so PDF readers keep showing old seals as valid after the seal certificate expires.
+1. **A seal certificate from a recognised provider** (on Adobe's trust list, or a licensed Rwandan CA), so people outside Ruliba see the seal as trusted without installing anything. Trusted timestamps and long-term validation data are already in every seal (since 25 November 2026).
+   Before the timestamp authority's certificates expire (today's DigiCert chain runs to 2031–2037; plan for 2030), add an archive timestamp (PAdES B-LTA) to stored documents to renew the evidence.
 2. **GovCA / national PKI certificates** as a higher signature level, once RISA issues them to companies.
 3. **Point-in-time database recovery** (pgBackRest with WAL archiving), on top of nightly backups.
 4. **SMS one-time codes** for outside signers without reliable email.

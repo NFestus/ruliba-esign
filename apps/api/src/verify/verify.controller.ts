@@ -69,6 +69,13 @@ export class VerifyController {
     return new StreamableFile(Buffer.from(ca.certPem), { type: 'application/x-pem-file', disposition: 'attachment; filename="Ruliba-Clays-eSign-Authority.pem"' });
   }
 
+  /** The authority's revocation list; its address is written into every seal certificate. */
+  @Public()
+  @Get('verify/crl')
+  async revocationList() {
+    return new StreamableFile(await this.sealer.crl(), { type: 'application/pkix-crl', disposition: 'inline; filename="Ruliba-Clays-eSign-Authority.crl"' });
+  }
+
   @Roles('ADMIN', 'AUDITOR')
   @Get('signing/certificates')
   async certificates() {

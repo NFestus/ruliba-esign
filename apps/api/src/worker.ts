@@ -37,7 +37,7 @@ async function main() {
   const crypto = new CryptoService(cfg);
   const storage = new StorageService(crypto, cfg);
   const email = new EmailService(dbs, cfg);
-  const sealer = new SealService({ db }, crypto, audit);
+  const sealer = new SealService({ db }, crypto, audit, cfg);
   const finalizer = new FinalizerService({ db }, storage, audit, email, sealer, cfg);
   const routing = new RoutingService(audit, email, new ReferenceService(), cfg);
   const jobs = new JobsService({ db }, audit, email, routing, cfg);

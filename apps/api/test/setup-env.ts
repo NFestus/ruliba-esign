@@ -12,3 +12,5 @@ process.env.TRUST_PROXY = '0';
 process.env.JWT_SIGN_SECRET = 'test-sign-secret-0123456789abcdef0123456789abcd';
 process.env.STORAGE_DIR = require('node:path').join(require('node:os').tmpdir(), 'esign-test-files');
 process.env.CONVERTER = 'soffice';
+// No internet in tests: seals are made without an outside timestamp (pdf/seal.spec.ts uses a local one).
+process.env.TSA_URL = 'off';

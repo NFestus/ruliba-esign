@@ -71,6 +71,13 @@ const schema = z.object({
   TWILIO_AUTH_TOKEN: z.string().optional(),
   TWILIO_FROM: z.string().optional(), // a Twilio number (+1...) or an approved alphanumeric sender
 
+  /**
+   * Independent timestamp authority (RFC 3161) whose signed time goes into every seal, so the
+   * signing time does not rest on this server's clock. Must be reachable from the API and worker.
+   * DigiCert's is free and trusted by Adobe Reader. "off" = no timestamp (tests, offline development).
+   */
+  TSA_URL: z.union([z.literal('off'), z.string().url()]).default('http://timestamp.digicert.com'),
+
   /** Independent mailbox (ideally outside IT's control, e.g. the MD or the auditor) for the daily audit-log fingerprint. */
   AUDIT_ANCHOR_EMAIL: z.string().email().optional(),
 
