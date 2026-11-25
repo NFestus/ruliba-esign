@@ -50,6 +50,10 @@ export interface SessionResult {
   accessToken: string;
   expiresIn: number;
   refreshToken: string; // set as an HttpOnly cookie by the controller, never returned in JSON
+  /** The sign-in ends at idleExpiresAt unless renewed (activity), and at sessionExpiresAt in any case. */
+  idleExpiresAt: string;
+  sessionExpiresAt: string;
+  idleMinutes: number;
   user: PublicUser;
 }
 
@@ -317,19 +321,27 @@ export class AuthService {
   private async startSession(user: UserWithRoles, meta: RequestMeta, method: string): Promise<SessionResult> {
     const familyId = randomUUID();
     const refreshToken = randomToken(32);
+    const sessionExpiresAt = new Date(Date.now() + this.config.SESSION_MAX_HOURS * 3_600_000);
+    const expiresAt = this.idleLimit(sessionExpiresAt);
     await this.db.transaction(async (tx) => {
       await tx.insert(refreshTokens).values({
         userId: user.id,
         familyId,
         tokenHash: sha256Hex(refreshToken),
-        expiresAt: new Date(Date.now() + this.config.REFRESH_TOKEN_TTL_DAYS * 86_400_000),
+        expiresAt,
+        sessionExpiresAt,
         ip: meta.ip,
         userAgent: meta.userAgent,
       });
       await tx.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
       await this.audit.record({ type: 'auth.login', meta, actor: actor(user), details: { method } }, tx);
     });
-    return this.buildSession(user, familyId, refreshToken);
+    return this.buildSession(user, familyId, refreshToken, { expiresAt, sessionExpiresAt });
+  }
+
+  /** The next idle limit: now plus the idle time, but never past the end of the sign-in. */
+  private idleLimit(sessionExpiresAt: Date) {
+    return new Date(Math.min(Date.now() + this.config.SESSION_IDLE_MINUTES * 60_000, sessionExpiresAt.getTime()));
   }
 
   /**
@@ -351,7 +363,19 @@ export class AuthService {
       });
       throw new UnauthorizedException('Your session was ended for safety. Please sign in again.');
     }
-    if (stored.expiresAt < new Date()) throw new UnauthorizedException('Your session has ended. Please sign in again.');
+    const now = new Date();
+    if (stored.sessionExpiresAt <= now || stored.expiresAt <= now) {
+      const code = stored.sessionExpiresAt <= now ? 'SESSION_EXPIRED' : 'SESSION_IDLE';
+      // Expired: nothing of this sign-in may be renewed any more.
+      await this.db.update(refreshTokens).set({ revokedAt: now }).where(and(eq(refreshTokens.familyId, stored.familyId), isNull(refreshTokens.revokedAt)));
+      throw new UnauthorizedException({
+        code,
+        message:
+          code === 'SESSION_IDLE'
+            ? `You were signed out after ${this.config.SESSION_IDLE_MINUTES} minutes without activity. Please sign in again.`
+            : `You were signed out because sign-ins last ${this.config.SESSION_MAX_HOURS} hours at most. Please sign in again.`,
+      });
+    }
 
     const user = await this.findUser(eq(users.id, stored.userId));
     if (!user || user.status !== 'ACTIVE') {
@@ -360,6 +384,7 @@ export class AuthService {
     }
 
     const next = randomToken(32);
+    const expiresAt = this.idleLimit(stored.sessionExpiresAt);
     await this.db.transaction(async (tx) => {
       const [created] = await tx
         .insert(refreshTokens)
@@ -367,7 +392,8 @@ export class AuthService {
           userId: user.id,
           familyId: stored.familyId,
           tokenHash: sha256Hex(next),
-          expiresAt: stored.expiresAt, // the sign-in still ends when its first token would have
+          expiresAt,
+          sessionExpiresAt: stored.sessionExpiresAt, // the sign-in still ends when it started to
           ip: meta.ip,
           userAgent: meta.userAgent,
         })
@@ -380,7 +406,7 @@ export class AuthService {
         .returning({ id: refreshTokens.id });
       if (res.length !== 1) throw new UnauthorizedException('Please sign in again.');
     });
-    return this.buildSession(user, stored.familyId, next);
+    return this.buildSession(user, stored.familyId, next, { expiresAt, sessionExpiresAt: stored.sessionExpiresAt });
   }
 
   async logout(rawToken: string | undefined, meta: RequestMeta) {
@@ -563,7 +589,7 @@ export class AuthService {
     return user;
   }
 
-  private async buildSession(user: UserWithRoles, familyId: string, refreshToken: string): Promise<SessionResult> {
+  private async buildSession(user: UserWithRoles, familyId: string, refreshToken: string, limits: { expiresAt: Date; sessionExpiresAt: Date }): Promise<SessionResult> {
     const claims: AccessClaims = {
       sub: user.id,
       email: user.email,
@@ -574,12 +600,21 @@ export class AuthService {
       pwc: user.mustChangePassword,
       typ: 'access',
     };
+    const accessTtl = Math.max(1, Math.min(this.config.ACCESS_TOKEN_TTL_SECONDS, Math.floor((limits.sessionExpiresAt.getTime() - Date.now()) / 1000)));
     const accessToken = await this.jwt.signAsync(claims, {
       secret: this.config.JWT_ACCESS_SECRET,
-      expiresIn: this.config.ACCESS_TOKEN_TTL_SECONDS,
+      expiresIn: accessTtl,
       algorithm: 'HS256',
     });
-    return { accessToken, expiresIn: this.config.ACCESS_TOKEN_TTL_SECONDS, refreshToken, user: await this.publicUser(user) };
+    return {
+      accessToken,
+      expiresIn: accessTtl, // never outlives the sign-in itself
+      refreshToken,
+      idleExpiresAt: limits.expiresAt.toISOString(),
+      sessionExpiresAt: limits.sessionExpiresAt.toISOString(),
+      idleMinutes: this.config.SESSION_IDLE_MINUTES,
+      user: await this.publicUser(user),
+    };
   }
 
   private async publicUser(user: UserWithRoles): Promise<PublicUser> {

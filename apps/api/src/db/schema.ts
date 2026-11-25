@@ -182,7 +182,8 @@ export const refreshTokens = pgTable(
     userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
     familyId: uuid('family_id').notNull(), // every rotation of one sign-in
     tokenHash: char('token_hash', { length: 64 }).notNull().unique(), // SHA-256; raw token never stored
-    expiresAt: ts('expires_at').notNull(),
+    expiresAt: ts('expires_at').notNull(), // idle limit: renewed at each rotation, never past sessionExpiresAt
+    sessionExpiresAt: ts('session_expires_at').notNull(), // absolute end of the sign-in
     revokedAt: ts('revoked_at'),
     replacedById: uuid('replaced_by_id'),
     ip: varchar('ip', { length: 64 }),

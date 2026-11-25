@@ -29,8 +29,14 @@ export function AuthFrame({ children }: { children: ReactNode }) {
   );
 }
 
+const ENDED: Record<string, string> = {
+  idle: 'You were signed out because nothing happened for a while. Sign in again to carry on.',
+  expired: 'Your sign-in reached its time limit. Sign in again to carry on.',
+  revoked: 'Your sign-in was ended, for example after a password change. Please sign in again.',
+};
+
 export function LoginPage() {
-  const { setSession } = useAuth();
+  const { setSession, endReason } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const activation = location.state as { activated?: boolean; reset?: boolean; email?: string } | null;
@@ -99,6 +105,11 @@ export function LoginPage() {
             {activation?.activated && (
               <div className="alert alert-ok" role="status">
                 Your account is active. Sign in with the password you just chose{(location.state as { from?: string })?.from ? ' to open the document to sign' : ''}.
+              </div>
+            )}
+            {endReason && !activation?.activated && !activation?.reset && (
+              <div className="alert alert-info" role="status">
+                {ENDED[endReason]}
               </div>
             )}
             {activation?.reset && (

@@ -76,7 +76,19 @@ components:
           type: string
         expiresIn:
           type: integer
-          example: 900
+          description: Seconds the access token is valid (ACCESS_TOKEN_TTL_SECONDS, never past sessionExpiresAt)
+          example: 600
+        idleExpiresAt:
+          type: string
+          format: date-time
+          description: The sign-in ends here unless renewed with /auth/refresh (SESSION_IDLE_MINUTES after the last renewal)
+        sessionExpiresAt:
+          type: string
+          format: date-time
+          description: The sign-in ends here in any case (SESSION_MAX_HOURS after signing in)
+        idleMinutes:
+          type: integer
+          example: 30
         user:
           $ref: '#/components/schemas/PublicUser'
     Department:
@@ -358,7 +370,7 @@ paths:
           $ref: '#/components/responses/Error'
   /auth/refresh:
     post:
-      summary: Rotate the refresh cookie and get a new access token. Re-use of an old cookie ends the whole sign-in.
+      summary: Rotate the refresh cookie and get a new access token. Re-use of an old cookie ends the whole sign-in. 401 with code SESSION_IDLE or SESSION_EXPIRED when a limit has passed.
       security: []
       parameters:
       - in: header

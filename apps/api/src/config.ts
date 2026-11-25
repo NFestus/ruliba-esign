@@ -20,8 +20,14 @@ const schema = z.object({
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
   JWT_MFA_SECRET: z.string().min(32, 'JWT_MFA_SECRET must be at least 32 characters'),
   JWT_SIGN_SECRET: z.string().min(32, 'JWT_SIGN_SECRET must be at least 32 characters'),
-  ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().default(900),
-  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().default(7),
+  /**
+   * Sessions (docs/architecture.md, decision 46). The access token is short and kept in memory;
+   * the refresh cookie renews it. A sign-in ends after SESSION_IDLE_MINUTES without activity, and in
+   * any case SESSION_MAX_HOURS after signing in (one working day), whatever the activity.
+   */
+  ACCESS_TOKEN_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(600),
+  SESSION_IDLE_MINUTES: z.coerce.number().int().min(5).max(480).default(30),
+  SESSION_MAX_HOURS: z.coerce.number().int().min(1).max(720).default(12),
   /** How long the activation link emailed to a new user works. */
   ACTIVATION_TOKEN_TTL_HOURS: z.coerce.number().int().min(1).max(720).default(72),
   /**

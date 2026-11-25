@@ -196,9 +196,9 @@ export class AuthController {
       secure: this.config.NODE_ENV === 'production',
       sameSite: 'strict',
       path: '/api/auth',
-      maxAge: this.config.REFRESH_TOKEN_TTL_DAYS * 86_400_000,
+      expires: new Date(s.sessionExpiresAt),
     });
-    return { accessToken: s.accessToken, expiresIn: s.expiresIn, user: s.user };
+    return { accessToken: s.accessToken, expiresIn: s.expiresIn, idleExpiresAt: s.idleExpiresAt, sessionExpiresAt: s.sessionExpiresAt, idleMinutes: s.idleMinutes, user: s.user };
   }
 
   private clearCookie(res: Response) {
