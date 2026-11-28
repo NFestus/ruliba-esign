@@ -132,7 +132,7 @@ A copy that has been printed and scanned, re-saved, or "printed to PDF" will not
 
 | Symptom | Check |
 |---|---|
-| Nobody receives emails | Worker running (`docker compose ps`), `EMAIL_TRANSPORT`, Graph secret not expired (12-month expiry), SPF/DKIM/DMARC |
+| Nobody receives emails | Worker running (`docker compose ps`), `EMAIL_TRANSPORT`, Resend API key valid and ruliba.com verified in Resend (Domains), Graph secret not expired (12-month expiry), SPF/DKIM/DMARC |
 | One supplier gets no email | Their spam folder; then on the document, **Send link again** (the old link stops working) |
 | "This code was already used" / code not arriving | Codes last 10 minutes; one new code per minute, 5 an hour. Ask them to use the newest email |
 | Upload refused "contains active content" | The PDF has scripts or attachments. Ask for a clean PDF, or print to PDF |

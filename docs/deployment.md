@@ -91,7 +91,16 @@ activity log and makes all staff share one sign-in rate limit.
 
 ## 6. Email
 
-**Until the ruliba.com tenant migration finishes:** `EMAIL_TRANSPORT=smtp` with any SMTP relay that uses TLS on port 587.
+**Resend (current):** `EMAIL_TRANSPORT=resend`, `RESEND_API_KEY=re_...`, `EMAIL_FROM="Ruliba Clays eSign <sign@ruliba.com>"`.
+
+1. In Resend → Domains, add `ruliba.com` (region Ireland, eu-west-1; under Advanced options set Custom Return-Path to `esign-bounce`, because `send.ruliba.com` belongs to Brevo; leave click and open tracking off).
+2. Add the records Resend shows in ruliba.com's DNS (HostGator cPanel → Zone Editor): TXT `resend._domainkey` (DKIM), CNAME `resign-bounce` → `rsend-euw1.forge.rmta.net` and CNAME `esign-bounce` → `send.forge.rmta.net`. These do not touch the existing ruliba.com SPF, MX or Brevo records.
+3. Wait until Resend shows the domain as Verified, then API Keys → create a key with "Sending access" for ruliba.com only.
+4. Set the variables in Dokploy (Environment) and redeploy, then Settings → Email → Send test email.
+
+Resend's free plan allows about 100 emails a day and 3,000 a month; check the usage page as use grows.
+
+**Other SMTP relays:** `EMAIL_TRANSPORT=smtp` with any SMTP relay that uses TLS on port 587.
 
 **After the migration** (Microsoft Graph, mailbox sign@ruliba.com):
 

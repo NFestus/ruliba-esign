@@ -32,6 +32,7 @@ x-api-env: &api-env
   GRAPH_CLIENT_ID: ${GRAPH_CLIENT_ID:-}
   GRAPH_CLIENT_SECRET: ${GRAPH_CLIENT_SECRET:-}
   GRAPH_SENDER: ${GRAPH_SENDER:-sign@ruliba.com}
+  RESEND_API_KEY: ${RESEND_API_KEY:-}
   AUDIT_ANCHOR_EMAIL: ${AUDIT_ANCHOR_EMAIL:-}
   # Automatic sign-out: minutes without activity, and hours after signing in.
   SESSION_IDLE_MINUTES: ${SESSION_IDLE_MINUTES:-30}
