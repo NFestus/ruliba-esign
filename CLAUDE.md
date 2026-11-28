@@ -15,7 +15,7 @@ apps/api          NestJS 11 API + BullMQ worker (same code, entry points main.ts
   src/users       staff accounts (admin), activation-link issuing, admin password reset
   src/sms         SMS queue (SmsService) + providers (console | africastalking | twilio), sent by the worker
   src/db          Drizzle schema (schema.ts = data model) and connection
-  src/email       email adapter (graph | smtp | console) + templates.ts (HTML + text)
+  src/email       email adapter (resend | graph | smtp | console) + templates.ts (HTML + text)
   src/audit       hash-chained audit log (AuditService.record, pass `tx` inside transactions)
   src/documents, src/signing, src/pdf, src/files, src/reference, src/setup, src/reports, ...
   drizzle/        SQL migrations + meta snapshots (committed, reviewed)

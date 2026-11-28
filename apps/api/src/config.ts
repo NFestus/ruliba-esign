@@ -54,7 +54,7 @@ const schema = z.object({
   GOTENBERG_URL: z.string().url().optional(),
   MAX_UPLOAD_MB: z.coerce.number().int().min(1).max(50).default(25),
 
-  EMAIL_TRANSPORT: z.enum(['console', 'smtp', 'graph']).default('console'),
+  EMAIL_TRANSPORT: z.enum(['console', 'smtp', 'graph', 'resend']).default('console'),
   EMAIL_FROM: z.string().default('Ruliba Clays eSign <sign@ruliba.com>'),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().default(587),
@@ -64,6 +64,7 @@ const schema = z.object({
   GRAPH_CLIENT_ID: z.string().optional(),
   GRAPH_CLIENT_SECRET: z.string().optional(),
   GRAPH_SENDER: z.string().default('sign@ruliba.com'),
+  RESEND_API_KEY: z.string().optional(),
 
   /**
    * Text messages for two-step sign-in codes. "console" prints them to the worker log (development);
@@ -110,6 +111,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (cfg.EMAIL_TRANSPORT === 'graph' && !(cfg.GRAPH_TENANT_ID && cfg.GRAPH_CLIENT_ID && cfg.GRAPH_CLIENT_SECRET)) {
     throw new Error('EMAIL_TRANSPORT=graph needs GRAPH_TENANT_ID, GRAPH_CLIENT_ID and GRAPH_CLIENT_SECRET');
   }
+  if (cfg.EMAIL_TRANSPORT === 'resend' && !cfg.RESEND_API_KEY) throw new Error('EMAIL_TRANSPORT=resend needs RESEND_API_KEY');
   if (cfg.NODE_ENV === 'production' && !cfg.CLAMAV_HOST) throw new Error('CLAMAV_HOST is required in production: every upload must be virus-scanned');
   if (cfg.SMS_TRANSPORT === 'africastalking' && !(cfg.AT_USERNAME && cfg.AT_API_KEY)) throw new Error('SMS_TRANSPORT=africastalking needs AT_USERNAME and AT_API_KEY');
   if (cfg.SMS_TRANSPORT === 'twilio' && !(cfg.TWILIO_ACCOUNT_SID && cfg.TWILIO_AUTH_TOKEN && cfg.TWILIO_FROM)) {

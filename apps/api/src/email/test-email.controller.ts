@@ -23,7 +23,7 @@ export class TestEmailController {
   @HttpCode(200)
   async send(@Body(new ZodPipe(schema)) body: z.infer<typeof schema>, @CurrentUser() user: AuthUser, @Meta() meta: RequestMeta) {
     const when = new Intl.DateTimeFormat('en-GB', { dateStyle: 'long', timeStyle: 'short', timeZone: 'Africa/Kigali' }).format(new Date());
-    const transport = { smtp: `SMTP (${this.config.SMTP_HOST})`, graph: `Microsoft 365 (${this.config.GRAPH_SENDER})`, console: 'the development log (not really sent)' }[this.config.EMAIL_TRANSPORT];
+    const transport = { smtp: `SMTP (${this.config.SMTP_HOST})`, graph: `Microsoft 365 (${this.config.GRAPH_SENDER})`, resend: 'Resend', console: 'the development log (not really sent)' }[this.config.EMAIL_TRANSPORT];
     await this.email.enqueue({ to: body.to, template: 'test-email', subject: 'Test email from Ruliba Clays eSign', data: { by: user.name, when, transport } });
     await this.audit.record({ type: 'setup.test_email_sent', meta, actor: user, details: { to: body.to, transport: this.config.EMAIL_TRANSPORT } });
     return { queued: true, transport, from: this.config.EMAIL_TRANSPORT === 'graph' ? this.config.GRAPH_SENDER : this.config.EMAIL_FROM };

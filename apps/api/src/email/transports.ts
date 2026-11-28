@@ -135,8 +135,41 @@ export class GraphTransport implements EmailTransport {
   }
 }
 
+/**
+ * Resend (resend.com) over its HTTPS API, so no outbound SMTP port is needed. The sending domain
+ * (ruliba.com) must be verified in Resend: its DKIM record and the return-path CNAMEs live in
+ * ruliba.com's DNS (see docs/deployment.md).
+ */
+export class ResendTransport implements EmailTransport {
+  readonly name = 'resend';
+  constructor(private readonly cfg: AppConfig) {}
+
+  async send(msg: OutgoingEmail) {
+    const from = parseFrom(this.cfg.EMAIL_FROM);
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${this.cfg.RESEND_API_KEY}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        from: msg.onBehalfOf ? `"${viaName(msg.onBehalfOf.name)}" <${from.address}>` : this.cfg.EMAIL_FROM,
+        reply_to: msg.onBehalfOf ? msg.onBehalfOf.email : undefined,
+        to: [msg.to],
+        subject: msg.subject,
+        headers: { 'Auto-Submitted': 'auto-generated', 'X-Auto-Response-Suppress': 'All' },
+        html: msg.html,
+        text: msg.text,
+        attachments: msg.attachments?.map((a) => ({ filename: a.filename, content: a.content.toString('base64'), content_type: a.contentType })),
+      }),
+      // A hung request must not hold a worker slot: fail and let the queue retry.
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) throw new Error(`Resend send failed: ${res.status} ${await res.text()}`);
+  }
+}
+
 export function createTransport(cfg: AppConfig): EmailTransport {
   switch (cfg.EMAIL_TRANSPORT) {
+    case 'resend':
+      return new ResendTransport(cfg);
     case 'smtp':
       return new SmtpTransport(cfg);
     case 'graph':
