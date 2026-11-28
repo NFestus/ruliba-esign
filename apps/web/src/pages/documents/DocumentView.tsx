@@ -7,6 +7,7 @@ import { Dialog, ErrorBox, Field, formatDate } from '../../components/ui';
 import { eventLabel, FILE_LABEL, RECIPIENT_STATUS, SIGNER_COLOURS } from '../../labels';
 import { StatusBadge } from './DocumentTable';
 import { FolderSelect } from '../../components/Folders';
+import { IconDownload } from '../../components/icons';
 import { DocFile, DocumentDetail } from './types';
 
 async function download(id: string, kind: string, file: DocFile) {
@@ -131,14 +132,14 @@ export function DocumentViewPage() {
               Sign now
             </Link>
           )}
-          {signed && (
-            <button className="btn btn-primary" onClick={() => download(d.id, 'signed', signed)}>
-              Download signed copy
+          {certificate && (
+            <button className="btn btn-secondary" title="The certificate of completion on its own" onClick={() => download(d.id, 'certificate', certificate)}>
+              <IconDownload /> Certificate
             </button>
           )}
-          {certificate && (
-            <button className="btn btn-secondary" onClick={() => download(d.id, 'certificate', certificate)}>
-              Certificate
+          {signed && (
+            <button className="btn btn-primary" title="The signed document with its Document ID on every page and the certificate of completion at the end" onClick={() => download(d.id, 'signed', signed)}>
+              <IconDownload /> Signed PDF
             </button>
           )}
           {d.status === 'DRAFT' && d.isSender && (

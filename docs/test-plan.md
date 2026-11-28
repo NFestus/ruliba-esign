@@ -88,7 +88,7 @@ Each tester works through these on a laptop and on their own phone, then ticks p
 | U5c | Procurement officer | Send a contract above the Managing Director amount | The approval box lists three approvers |
 | U6 | Procurement officer | Sign from the dashboard | Consent, then fields, then "Thank you" |
 | U7 | Supplier (test mailbox, on a phone) | Open the email link, ask for a code, sign by drawing with a finger | Code arrives within 1 minute; drawing is smooth; "Thank you" |
-| U8 | Everyone | Open the completed email | Signed PDF attached; fields and signatures where they were placed; signing record page at the end; Adobe Reader shows the Ruliba seal (trusted on Ruliba PCs with the authority certificate) |
+| U8 | Everyone | Open the completed email | Signed PDF attached; fields and signatures where they were placed; the Document ID (and reference) printed at the top of every page; the certificate of completion at the end, with "Certificate page n of m" in its footer; Adobe Reader shows the Ruliba seal (trusted on Ruliba PCs with the authority certificate) |
 | U8a | Anyone, signed out | Upload the signed PDF at /check; then upload a re-saved copy | "Genuine" with the right title and signers; then "No match" |
 | U8b | Procurement officer | Save a contract as a template; create a new draft from it | Fields and order kept; only names and emails to fill in |
 | U9 | Supplier | Open the same link again | "Already signed" |

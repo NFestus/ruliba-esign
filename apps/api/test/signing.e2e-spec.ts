@@ -235,7 +235,7 @@ describe('Preparing, sending and signing a document', () => {
       const dir = mkdtempSync(path.join(os.tmpdir(), 'signed-'));
       writeFileSync(path.join(dir, 's.pdf'), signed.body as Buffer);
       const text = execFileSync('pdftotext', [path.join(dir, 's.pdf'), '-']).toString();
-      expect(text).toContain('Signing record');
+      expect(text).toContain('Certificate of completion');
       expect(text).toContain('Jean Supplier');
       expect(text).toContain('102345678');
       expect(text).toContain('one-time code sent to this email address');

@@ -9,6 +9,7 @@ import { auditEvents, documentFiles, documents, fieldValues, fields, recipients 
 import { EmailService, OutgoingMail } from '../email/email.service';
 import { StorageService } from '../files/storage.service';
 import { SealService } from '../pdf/seal.service';
+import { PDFDocument } from 'pdf-lib';
 import { certificatePdf, stampDocument, StampField } from '../pdf/stamp';
 
 const when = (d: Date | null | undefined) =>
@@ -144,7 +145,8 @@ export class FinalizerService {
       const { sealed: cert } = await this.sealer.seal(await certificatePdf(record), 'Certificate of completion issued by Ruliba Clays eSign');
       const certKey = this.storage.newKey(`documents/${documentId}`);
       const certStored = await this.storage.put(certKey, cert);
-      const pages = doc.files.find((f) => f.kind === 'CONVERTED')?.pageCount ?? prepared.pageCount ?? 0;
+      // The document's pages plus the certificate of completion (one page or more).
+      const pages = (await PDFDocument.load(stamped, { updateMetadata: false })).getPageCount();
       const baseName = prepared.fileName.replace(/\.pdf$/i, '');
       const [file] = await tx
         .insert(documentFiles)
@@ -156,7 +158,7 @@ export class FinalizerService {
           mimeType: 'application/pdf',
           sizeBytes: signed.length,
           sha256: sha,
-          pageCount: pages + 1,
+          pageCount: pages,
           wrappedKey,
         })
         .returning({ id: documentFiles.id });

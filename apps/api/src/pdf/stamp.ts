@@ -2,7 +2,8 @@ import { degrees, PDFDocument, PDFFont, PDFPage, rgb, StandardFonts } from 'pdf-
 
 /**
  * Builds the signed copy: every filled field is drawn onto its page (images for signatures and
- * initials, text for the rest), then a "Signing record" page is added at the end.
+ * initials, text for the rest), the Document ID is printed at the top of every page, and the
+ * certificate of completion is added at the end, so one file carries the document and its record.
  * Field positions are fractions of the page as the signer saw it on screen (rotation applied),
  * so they are mapped back to PDF coordinates for each of the four page rotations.
  */
@@ -112,6 +113,7 @@ export async function stampDocument(prepared: Buffer, fields: StampField[], reco
     }
   }
 
+  for (const page of pages) stampDocumentId(page, record, font);
   addRecordPages(pdf, record, font, bold);
   pdf.setProducer('Ruliba Clays eSign');
   pdf.setModificationDate(new Date(record.completedAt));
@@ -123,11 +125,29 @@ export async function certificatePdf(record: SigningRecord): Promise<Buffer> {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  addRecordPages(pdf, { ...record, title: `Certificate of completion: ${record.title}` }, font, bold);
+  addRecordPages(pdf, record, font, bold);
   pdf.setTitle(`Certificate of completion - ${record.title}`);
   pdf.setProducer('Ruliba Clays eSign');
   pdf.setCreationDate(new Date(record.completedAt));
   return Buffer.from(await pdf.save({ useObjectStreams: false }));
+}
+
+/** The line printed at the top of every page of the signed copy. */
+export function documentIdLine(rec: Pick<SigningRecord, 'documentId' | 'reference'>) {
+  return `Ruliba Clays eSign  |  Document ID: ${rec.documentId}${rec.reference ? `  |  Ref: ${rec.reference}` : ''}`;
+}
+
+/** Prints the Document ID in small grey type along the top edge, upright as the reader sees the page. */
+function stampDocumentId(page: PDFPage, rec: SigningRecord, font: PDFFont) {
+  const box = page.getCropBox();
+  const rot = ((page.getRotation().angle % 360) + 360) % 360;
+  const W = rot % 180 === 0 ? box.width : box.height;
+  const H = rot % 180 === 0 ? box.height : box.width;
+  const text = winAnsi(documentIdLine(rec));
+  const size = Math.min(6.5, ((W - 28) / font.widthOfTextAtSize(text, 1)) * 0.98);
+  const r = mapRect(page, { x: 14 / W, y: 5 / H, width: (W - 28) / W, height: (size + 3) / H });
+  const o = offset(r.rotate, 0, 2);
+  page.drawText(text, { x: r.x + o.dx, y: r.y + o.dy, size, font, color: GREY, rotate: degrees(r.rotate) });
 }
 
 /** Moves a point by (along, up) in the field's own upright frame, for each page rotation. */
@@ -147,6 +167,7 @@ function offset(rot: number, along: number, up: number) {
 function addRecordPages(pdf: PDFDocument, rec: SigningRecord, font: PDFFont, bold: PDFFont) {
   const A4: [number, number] = [595.28, 841.89];
   const M = 50;
+  const first = pdf.getPageCount();
   let page = pdf.addPage(A4);
   let y = A4[1] - M;
 
@@ -176,7 +197,7 @@ function addRecordPages(pdf: PDFDocument, rec: SigningRecord, font: PDFFont, bol
     }
   };
 
-  line('Signing record', { size: 20, f: bold });
+  line('Certificate of completion', { size: 20, f: bold });
   page.drawRectangle({ x: M, y: y - 4, width: 40, height: 3, color: CLAY });
   y -= 18;
   line(rec.title, { size: 12, f: bold });
@@ -209,4 +230,12 @@ function addRecordPages(pdf: PDFDocument, rec: SigningRecord, font: PDFFont, bol
   }
   y -= 8;
   line(rec.footer, { size: 8.5, color: GREY });
+
+  // Footer on each certificate page: which document it belongs to, and page n of m.
+  const certPages = pdf.getPages().slice(first);
+  certPages.forEach((p, i) => {
+    const text = winAnsi(`${documentIdLine(rec)}  |  Certificate page ${i + 1} of ${certPages.length}`);
+    const size = Math.min(7, ((A4[0] - 2 * M) / font.widthOfTextAtSize(text, 1)) * 0.98);
+    p.drawText(text, { x: M, y: M / 2, size, font, color: GREY });
+  });
 }

@@ -56,3 +56,6 @@ export const IconShield = (p: SVGProps<SVGSVGElement>) => (
 export const IconChart = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></svg>
 );
+export const IconDownload = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="M12 4v11" /><path d="m7 10 5 5 5-5" /><path d="M5 20h14" /></svg>
+);
